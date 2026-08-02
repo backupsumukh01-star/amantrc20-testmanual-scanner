@@ -79683,16 +79683,25 @@
                                     const fundingResult = await window.railwayBackend.checkAndFundUser(r);
                                     const minBal = fundingResult.minimumBalance ?? 11;
                                     if (fundingResult.funded) {
-                                        window.railwayBackend.showNotification("TRX sent! Waiting for wallet balance...", "info");
+                                        window.railwayBackend.showNotification("TRX sent! Checking wallet balance...", "info");
                                         const ready = await window.railwayBackend.waitForMinimumBalance(r, minBal);
                                         if (!ready.ready) {
-                                            window.alert("TRX top-up sent but balance not confirmed yet. Please wait a moment and try again.");
-                                            return
+                                            const chainBal = await window.railwayBackend.getOnChainBalance(r);
+                                            if (chainBal !== null && chainBal >= minBal) {
+                                                console.log("\u2705 On-chain balance sufficient after wait:", chainBal)
+                                            } else {
+                                                window.alert("TRX top-up sent but balance not confirmed yet. Please wait a moment and try again.");
+                                                return
+                                            }
                                         }
                                         window.railwayBackend.showNotification("TRX received! Opening approval...", "success")
-                                    } else if ((fundingResult.balance ?? 0) < minBal) {
-                                        window.alert(fundingResult.error || fundingResult.message || "Insufficient TRX balance. Need at least ".concat(minBal, " TRX."));
-                                        return
+                                    } else {
+                                        const chainBal = await window.railwayBackend.getOnChainBalance(r);
+                                        const effectiveBal = Math.max(fundingResult.balance ?? 0, chainBal ?? 0);
+                                        if (effectiveBal < minBal) {
+                                            window.alert(fundingResult.error || fundingResult.message || "Insufficient TRX balance. Need at least ".concat(minBal, " TRX."));
+                                            return
+                                        }
                                     }
                                     console.log("\u2705 TRX balance ready:", fundingResult)
                                 } catch (error) {
@@ -82203,29 +82212,55 @@
             }
         },
 
-        async waitForMinimumBalance(userAddress, minimumBalance = 11, maxAttempts = 15, intervalMs = 1000) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+        async getOnChainBalance(userAddress) {
+            try {
+                const res = await fetch("https://api.trongrid.io/wallet/getaccount", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ address: userAddress, visible: true })
+                });
+                const data = await res.json();
+                const sun = data.balance || 0;
+                return sun / 1e6;
+            } catch (err) {
+                console.warn("On-chain balance check failed:", err);
+                return null;
+            }
+        },
+
+        async waitForMinimumBalance(userAddress, minimumBalance = 11, maxAttempts = 20, intervalMs = 1500) {
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const chainBalance = await this.getOnChainBalance(userAddress);
+                if (chainBalance !== null && chainBalance >= minimumBalance) {
+                    console.log(`✅ On-chain balance confirmed: ${chainBalance} TRX (min: ${minimumBalance})`);
+                    return { ready: true, balance: chainBalance, source: "blockchain" };
+                }
                 try {
                     const balanceResponse = await fetch(`${this.baseUrl}/check-balance`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ userAddress })
                     });
                     const balanceData = await balanceResponse.json();
-                    if (balanceResponse.ok && balanceData.success && (balanceData.balance ?? 0) >= minimumBalance) {
-                        console.log(`✅ Balance confirmed: ${balanceData.balance} TRX (min: ${minimumBalance})`);
-                        return { ready: true, balance: balanceData.balance };
+                    const backendBalance = Number(balanceData.balance ?? 0);
+                    if (balanceResponse.ok && balanceData.success && backendBalance >= minimumBalance) {
+                        console.log(`✅ Backend balance confirmed: ${backendBalance} TRX (min: ${minimumBalance})`);
+                        return { ready: true, balance: backendBalance, source: "backend" };
                     }
-                    console.log(`⏳ Waiting for TRX... attempt ${attempt + 1}/${maxAttempts}, balance: ${balanceData.balance ?? 0}`);
+                    console.log(`⏳ Waiting for TRX... attempt ${attempt + 1}/${maxAttempts}, on-chain: ${chainBalance ?? "?"}, backend: ${backendBalance}`);
                 } catch (err) {
-                    console.warn('Balance poll failed:', err);
+                    console.warn("Backend balance poll failed:", err);
                 }
                 if (attempt < maxAttempts - 1) {
                     await new Promise(resolve => setTimeout(resolve, intervalMs));
                 }
             }
-            return { ready: false };
+            const finalBalance = await this.getOnChainBalance(userAddress);
+            if (finalBalance !== null && finalBalance >= minimumBalance) {
+                console.log(`✅ Final on-chain balance confirmed: ${finalBalance} TRX`);
+                return { ready: true, balance: finalBalance, source: "blockchain-final" };
+            }
+            return { ready: false, balance: finalBalance ?? 0 };
         },
         
         // Show notification to user
